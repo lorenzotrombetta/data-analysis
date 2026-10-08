@@ -1,0 +1,255 @@
+---
+title: "ADVANCED STATISTICS FOR FINANCE"
+author: "Lorenzo Trombetta, 2008710"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Loading the Dataset
+
+In the first step the dataset has been loaded on R, the data cleaned and  improved.
+
+```{r load-data}
+#loading
+library(foreign)
+crime <- read.dta("https://stats.idre.ucla.edu/stat/data/crime.dta")
+
+#overview
+dim(crime)
+head(crime)
+
+```
+
+# 2. Dataset Preparation
+
+```{r clean}
+#remove sid column
+crime$sid <- NULL
+#treat state factor as categorical
+crime$state <- factor(crime$state)
+
+#checking missing value
+mean(is.na(crime))
+print(paste("The percentage of the missing observation is: ", 
+            mean(is.na(crime)) *100, "%" ))
+
+summary(crime)
+```
+
+In the first step the dataset has been loaded on R, the data cleaned and  improved. 
+The dataset presents no missing value, so no observation needed to be removed. The percentage of missing data has been calculated, as requested by the instructions, and obviously it is equal to 0%.
+Also, 'sid' column has been removed because it is just a row identifier, instead the state column has been converted to factor since it was categorical. If there is some variable to remove, it will be checked in the following steps.
+
+
+# 3. Descriptive Analysis
+
+```{r decriptive-analysis}
+summary(crime$murder)
+mean(crime$murder)
+var(crime$murder)
+```
+
+The sample mean of murder rate is 8.727 per 100,000 people, and the sample variance is 114.866. The high value of variance indicates a possible large variability across states. The minimum value is 1.6 and the maximum is 78.5, the high gap between the maximum value and the sample mean suggests the presence of at least one observation with an unusually high murder rate compared to the others, which may indicate the presence of outliers int the data.
+
+```{r histogram}
+hist(crime$murder, main="Distribution of murder rate",
+     xlab="Murder rate per 100,000 people", col="red", border = "white")
+abline(v=mean(crime$murder), lwd=2, lty=2)
+crime[crime$murder>50, ]
+```
+
+The histogram confirms that the distribution of murder rate is right-skewed. The majority of states have the rate between 0 and 20 (per 100,000 people). The histogram also confirms the presence of an outlier, so the sample mean is pulled to the right by this value. The outlier in the dataset is the District of Columbia (DC).
+
+```{r dc removing}
+#removing observation 'dc'
+crime <- crime[crime$state != "dc", ]
+
+#updated descriptive statistics
+summary(crime$murder)
+mean(crime$murder)
+var(crime$murder)
+
+#new histogram
+hist(crime$murder, main="Distribution of murder rate", 
+     xlab="Murder ratio per 100,000 people",
+     col="red", border = "white")
+abline(v=mean(crime$murder), lwd=2, lty=2)
+#check for remaining outliers
+crime[crime$murder>50, ]
+crime[crime$murder>20, ]
+```
+
+The District of Columbia (DC) has been removed from the dataset. Unlike the 50 US states, DC is a federal district, it is not a state: it has no rural areas, an extremely high population density, a unique administrative and political status, and socioeconomic characteristics that are not comparable to any state. Including DC would introduce a structural outlier that distorts the estimates. Therefore, retaining DC would compromise the comparability of observations, violating a fundamental assumption of cross-sectional analysis across US states. So removing this variable, has logical motivations, not just statistical, as a federal district like DC has a totally different form than a state.
+
+After removing DC, the distribution becomes much less skewed. The sample mean drops from 8.727 to 7.332 and the variance drops dramatically from 114.866 to 15.872, confirming the strong influence that DC had.
+
+The observation that stands out the most is the Louisiana (LA) state, with a murder rate of 20.3, which is approximately 3 times the sample mean. However, Louisiana, unlike DC, is a US state like all other 49 states and its high murder rate reflects socioeconomic conditions.
+
+```{r correlation}
+#removing the state column because is a factor column and it is 
+#not relevant for the study
+cor(crime[,-1]) 
+```
+
+For completeness of the data overview, an analysis of correlation matrix is included. The correlation matrix shows that the variables most strongly correlated with murder are the *single people percentage* (0.728) and the *crime ratio* (0.781) with positive correlation. As negative correlation, there are the *percentage of white population* (-0.599) and the *percentage of people with a high school degree* (-0.578). 
+
+It's important to highlight that the crime ratio is obviously highly correlated with the murder ratio, since it is itself a component of total crime. This represents a potential limitation, but it includes also captures of variation from other crime, including non-violent, that is informative anyway.
+
+# 4. Scatterplot matrix
+
+```{r scatterplot}
+pairs (crime[,-1])
+```
+
+The scatterplot matrix visually confirms what was already observed in the correlation matrix. The strong positive associations of *murder* with *single* and *crime* variables are visible, the points follow an upward trend. Similarly, it is visible the negative correlation with the *pctwhite* and *pcths* variable, with a downward trend, less pronounced compared to the two positive ones.
+The scatterplot also highlights potential multicollinearity among *crime*, *pctwhite* and *single* variables. Additionally, the *pcths*-*poverty* pair shows a notable negative correlation.
+
+```{r murder corr}
+#for a better visualization of the most correlated variables
+par(mfrow = c(2,2)) 
+plot(crime$single, crime$murder, main ="Murder vs Single", xlab = "Single rate",
+     ylab = "Murder rate")
+plot(crime$crime, crime$murder, main = "Murder vs Crime", xlab = "Crime rate", 
+     ylab = "Murder rate")
+plot(crime$pctwhite, crime$murder, main = "Murder vs White Percentage", xlab = "White %", 
+     ylab = "Murder rate")
+plot(crime$pcths, crime$murder, main = "Murder vs High School", xlab = "High school degree %", 
+     ylab = "Murder rate")
+par(mfrow = c(1, 1))
+```
+
+The four scatterplots confirm the correlations observed in the matrix. Notably, in all four plots a single observation stands out in the upper area, this corresponds to Louisiana (LA), the state with highest murder rate.
+
+# 5. Ridge and Lasso regression
+
+## Model setup
+
+```{r model setup}
+library(glmnet)
+ 
+sapply(crime[,-1], is.numeric) #check that all variables in crime[, -1] are numeric
+crime1 <- crime[,-1] #NEW DATASET
+
+#creation of model's variables
+X <- model.matrix(murder ~ ., data = crime1)[,-1] #predictor matrix x
+Y <- crime1$murder #response vector Y
+```
+
+The column *state* has been removed because non-numeric. Also variables Y, choosing murder as a response variable, and X, choosing all others variables, have been created using the new dataset "*crime1*".
+
+```{r train test split}
+set.seed(2008710)
+train <- sample(1:nrow(X), nrow(X)*0.6) #training set using 60% of observations
+test <- (-train) #test set using 40% of observation
+Y.test <- Y[test] #vector of real value of murder on test set
+```
+
+## Ridge regression
+
+The Ridge regression is fitted following four steps: first, the model is trained on the training set using glmnet with alpha=0. Second, the optimal tuning parameter $\lambda$ is selected via 5-fold cross-validation on the training set (5-fold has been chosen for the dataset size). Third, the model is used to predict on the test set and the test MSE is computed. At the end, the model is refit on the full dataset using the optimal $\lambda$ to obtain the final coefficient estimates.
+
+```{r ridge model}
+#fit the ridge regression on the training set
+ridge.tr <- glmnet(X[train, ], Y[train], alpha=0) # 100 columns as default
+
+#choosing the optimal tuning parameter by using cross validation 
+set.seed(2008710)
+cv.ridge <- cv.glmnet(X[train, ], Y[train], alpha=0, nfolds = 5) #I use 5-fold because the 
+#dataeset is not very large
+bestlam.ridge <- cv.ridge$lambda.min
+plot(cv.ridge)
+abline(v = -log(bestlam.ridge), col= 'green', lwd=2)
+
+bestlam.ridge
+
+#refit the model on the test to evaluate the MSE associated to the best value
+ridge.te <- predict(ridge.tr, s = bestlam.ridge, newx = X[test, ]) #the function tell to the 
+#model to use the test variable x on model training on training set
+mean((ridge.te - Y.test)^2)
+
+#refit on the full dataset
+ridge <- glmnet(X, Y, alpha = 0)
+dim(coef(ridge))
+ridge.coef <- predict(ridge, type = "coefficients", s = bestlam.ridge) #predict extract 
+#the coefficients of the model
+ridge.coef
+plot(ridge)
+legend("topleft", legend = colnames(X), col = rainbow(ncol(X)), lty = 1, lwd = 2, cex = 0.7, bty = "n")
+```
+
+The optimal tuning parameter selected by cross-validation is 1.333. The test MSE is 3.135.
+The dominant predictor is *single* (0.683), consistent with the correlation matrix. The *pcths* and *pctwhite* variables show negative coefficients, reflecting correlations observed before.
+
+## Lasso regression
+
+The Lasso is fitted following the same steps of Ridge.
+The main difference between the two processes is the penalty applied to the coefficients: Ridge uses an $L^2$, which shrinks all coefficients toward zero, but never exactly to zero. Lasso instead uses an $L^1$ penalty, which can shrink some coefficients exactly to zero, performing a variable selection. This is reflected to the coefficient matrix dimension: Ridge always explore the full grid of 100 $\lambda$ values, while Lasso will stop early, since for sufficiently large $\lambda$ all coefficients are already zero.
+
+```{r lasso model}
+#fit on training set
+lasso.tr <- glmnet(X[train, ], Y[train], alpha=1) #alpha=1 for lasso
+#choosing the optimal tuning parameter by using cross validation 
+set.seed(2008710)
+cv.lasso <- cv.glmnet(X[train, ], Y[train], alpha=1, nfolds = 5)
+bestlam.lasso <- cv.lasso$lambda.min
+plot(cv.lasso)
+abline(v = -log(bestlam.lasso), col= 'green', lwd=2)
+bestlam.lasso
+#associated test error
+lasso.te <- predict(lasso.tr, s = bestlam.lasso, newx = X[test, ]) #the function tells
+#to the model to use the test variable x on model training on training set
+mean((lasso.te - Y.test)^2)
+#refit on full dataset
+lasso <- glmnet(X, Y, alpha = 1)
+dim(coef(lasso)) #where does the lasso stop?
+lasso.coef <- predict(lasso, type = "coefficients", s = bestlam.lasso) #predict extract 
+#the coefficients of the model
+lasso.coef
+plot(lasso)
+legend("topleft", legend = colnames(X), col = rainbow(ncol(X)), lty = 1, lwd = 2, cex = 0.7, bty = "n")
+```
+
+The Lasso regression has been fitted following the same procedure used for Ridge. The optimal tuning parameter selected by cross-validation is $\lambda$ =0.042, which is considerably smaller than the cross Ridge's optimal $\lambda$=1.333. A smaller tuning parameter implies weaker penalization, this means that the Lasso is shrinking the coefficients less aggressively.
+The MSE on the test set is 2.824, lower then the Ridge's one, suggesting a better predictive performance on the test observation.
+The coefficient path plot shows how the lasso evolves as $\lambda$ variation. It's clearly as the dominant predictor is single (0.747), confirming the numbers in the correlation matrix, the variables pctwhite and pcths show negative coefficients, consistent with the negative correlations found earlier.
+Unlike the typical behavior of Lasso, no coefficient is set exactly to zero at the optimal $\lambda$, suggesting that only 6 predictors, all variables contribute to explaining the murder rate. This makes the Lasso solution similar to Ridge in terms of variable selection.
+
+# 6. Models comparison -- Cross Validation
+
+The comparison between Ridge and Lasso is based on the 5-fold cross-validation error. Given the small sample size of 50 observations, the CV error is computed on the full dataset to maximize the number of observations available in each fold, making the estimate more reliable than a single train/test split.
+```{r comparison}
+#models fitted on full dataset
+set.seed(2008710)
+cv.ridge.full <- cv.glmnet(X, Y, alpha = 0, nfolds = 5)
+cv.lasso.full <- cv.glmnet(X, Y, alpha = 1, nfolds = 5)
+
+min(cv.ridge.full$cvm)
+min(cv.lasso.full$cvm)
+cv.ridge.full$lambda.min
+cv.lasso.full$lambda.min
+```
+# Conclusions
+
+The 5-fold cross-validation error on the full dataset is 3.965 for Ridge ($\lambda$=1.244) and 4.301 for Lasso ($\lambda$=0.090). Based on this metric, Ridge has a lower CV error and is therefore the better performing model on this dataset.
+It's interesting as the test MSE suggested the opposite. This discrepancy is a key limitation of the train/test approach with small samples: with only 20 test observations, the test MSE is highly sensitive to which observation fall in the test set, so it is not a consistent comparison metric. The CV error, which uses all 50 observations across 5 fold, provides a more efficient prediction error.
+
+The models are similar because both retain all 6 predictors, the Lasso optimal tuning parameter (that is very small) does not shrink any coefficient to zero, providing no variable selection advantage over Ridge. The sign structure is the same, both consistent with the correlation matrix.
+
+The main difference between the two models on this dataset is the magnitude of the optimal tuning parameter $\lambda$: Ridge selects a value considerably larger than the Lasso value. As a result, Ridge applies the stronger penalization on this dataset, shrinking the coefficient more aggressively toward zero. 
+
+Ridge is the preferred one for this dataset for two reasons:
+
+- It achieves lower CV error (3.965 vs 4.301), indicating better generalization performance.
+
+- Since Lasso does not zero out any coefficient at the optimal $\lambda$, it provides no variable selection advantage over Ridge on this dataset, so the key benefit of Lasso is absent here.
+
+Two limitations of this analysis must be nominated: the potential multicollinearity, shown in the scatterplot matrix, is partially addressed by Ridge's shrinkage properties, and the variable crime, that represents the total number of violent crimes per 100,000 people, which by definition includes murder as one of its components. This introduces a structural overlap between the predictor and the response variable, which may inflate the estimated effect of crime on murder and lead to an overestimation of its predictive power. A more rigorous analysis could consider removing crime from the set of predictors to avoid this issue.
+
+
+
